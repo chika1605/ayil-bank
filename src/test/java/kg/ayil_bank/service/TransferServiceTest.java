@@ -33,6 +33,9 @@ class TransferServiceTest {
     @Mock
     private TransactionRepository transactionRepository;
 
+    @Mock
+    private TransactionService transactionService;
+
     @InjectMocks
     private TransferService transferService;
 
