@@ -14,6 +14,8 @@ import kg.ayil_bank.service.TransactionService;
 import kg.ayil_bank.service.TransferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,9 +36,11 @@ public class TransferServiceImpl implements TransferService {
     @Transactional
     public TransferResponse transfer(TransferRequest request, String idempotencyKey) {
         log.info("Начало перевода с {} на {} сумма {}", 
-                request.getFromAccountNumber(), request.getToAccountNumber(), request.getAmount());
+                maskAccountNumber(request.getFromAccountNumber()), 
+                maskAccountNumber(request.getToAccountNumber()), 
+                request.getAmount());
         
-        Optional<TransferResponse> cachedResponse = checkIdempotency(idempotencyKey);
+        Optional<TransferResponse> cachedResponse = checkIdempotency(idempotencyKey, request);
         if (cachedResponse.isPresent()) {
             return cachedResponse.get();
         }
@@ -45,7 +49,7 @@ public class TransferServiceImpl implements TransferService {
         
         try {
             validateSameAccount(request);
-            AccountPair accounts = lockAccounts(request);
+            AccountPair accounts = lockAccountsInOrder(request);
             validateAccounts(accounts.from(), accounts.to(), request.getAmount());
             
             transaction.setFromAccountId(accounts.from().getId());
@@ -57,23 +61,38 @@ public class TransferServiceImpl implements TransferService {
             log.info("Перевод успешно завершен. ID транзакции: {}", transaction.getId());
             return transferMapper.toSuccessResponse(request, transaction);
             
-        } catch (Exception e) {
+        } catch (AccountNotFoundException | InsufficientBalanceException | 
+                 AccountNotActiveException | InvalidTransferException | IdempotencyViolationException e) {
             log.error("Перевод не выполнен: {}", e.getMessage());
             transactionService.saveFailedTransaction(transaction, e.getMessage());
             throw e;
+        } catch (ObjectOptimisticLockingFailureException e) {
+            log.error("Конфликт версий при обновлении счета");
+            throw new InvalidTransferException("Конфликт при обновлении счета, повторите попытку");
+        } catch (DataIntegrityViolationException e) {
+            log.error("Нарушение целостности данных");
+            throw new InvalidTransferException("Ошибка целостности данных");
         }
     }
     
-    private Optional<TransferResponse> checkIdempotency(String idempotencyKey) {
+    private Optional<TransferResponse> checkIdempotency(String idempotencyKey, TransferRequest request) {
         if (idempotencyKey == null) {
             return Optional.empty();
         }
         
         return transactionRepository.findByIdempotencyKey(idempotencyKey)
                 .map(transaction -> {
-                    log.info("Обнаружен дублирующий запрос с ключом идемпотентности: {}", idempotencyKey);
                     Account fromAccount = accountRepository.findById(transaction.getFromAccountId()).orElse(null);
                     Account toAccount = accountRepository.findById(transaction.getToAccountId()).orElse(null);
+                    
+                    if (!transaction.getAmount().equals(request.getAmount()) ||
+                        (fromAccount != null && !fromAccount.getAccountNumber().equals(request.getFromAccountNumber())) ||
+                        (toAccount != null && !toAccount.getAccountNumber().equals(request.getToAccountNumber()))) {
+                        throw new IdempotencyViolationException(
+                            "Параметры запроса не совпадают с оригинальным запросом для данного ключа идемпотентности");
+                    }
+                    
+                    log.info("Обнаружен дублирующий запрос с ключом идемпотентности: {}", idempotencyKey);
                     return transferMapper.toResponse(transaction, fromAccount, toAccount);
                 });
     }
@@ -91,14 +110,43 @@ public class TransferServiceImpl implements TransferService {
         }
     }
     
-    private AccountPair lockAccounts(TransferRequest request) {
-        Account fromAccount = accountRepository.findByAccountNumberWithLock(request.getFromAccountNumber())
-                .orElseThrow(() -> new AccountNotFoundException("Счет отправителя не найден: " + request.getFromAccountNumber()));
+    private AccountPair lockAccountsInOrder(TransferRequest request) {
+        String fromAccountNumber = request.getFromAccountNumber();
+        String toAccountNumber = request.getToAccountNumber();
         
-        Account toAccount = accountRepository.findByAccountNumberWithLock(request.getToAccountNumber())
-                .orElseThrow(() -> new AccountNotFoundException("Счет получателя не найден: " + request.getToAccountNumber()));
+        String firstAccountNumber;
+        String secondAccountNumber;
+        
+        if (fromAccountNumber.compareTo(toAccountNumber) < 0) {
+            firstAccountNumber = fromAccountNumber;
+            secondAccountNumber = toAccountNumber;
+        } else {
+            firstAccountNumber = toAccountNumber;
+            secondAccountNumber = fromAccountNumber;
+        }
+        
+        final String finalFirstAccountNumber = firstAccountNumber;
+        final String finalSecondAccountNumber = secondAccountNumber;
+        
+        Account firstAccount = accountRepository.findByAccountNumberWithLock(finalFirstAccountNumber)
+                .orElseThrow(() -> new AccountNotFoundException("Счет не найден: " + maskAccountNumber(finalFirstAccountNumber)));
+        
+        Account secondAccount = accountRepository.findByAccountNumberWithLock(finalSecondAccountNumber)
+                .orElseThrow(() -> new AccountNotFoundException("Счет не найден: " + maskAccountNumber(finalSecondAccountNumber)));
+        
+        Account fromAccount = firstAccount.getAccountNumber().equals(fromAccountNumber) 
+                ? firstAccount : secondAccount;
+        Account toAccount = firstAccount.getAccountNumber().equals(toAccountNumber) 
+                ? firstAccount : secondAccount;
         
         return new AccountPair(fromAccount, toAccount);
+    }
+    
+    private String maskAccountNumber(String accountNumber) {
+        if (accountNumber == null || accountNumber.length() < 4) {
+            return "****";
+        }
+        return "****" + accountNumber.substring(accountNumber.length() - 4);
     }
     
     private void validateAccounts(Account fromAccount, Account toAccount, BigDecimal amount) {

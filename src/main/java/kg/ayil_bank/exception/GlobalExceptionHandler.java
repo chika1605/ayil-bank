@@ -44,6 +44,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(ex.getMessage(), HttpStatus.BAD_REQUEST.value(), LocalDateTime.now()));
     }
     
+    @ExceptionHandler(IdempotencyViolationException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyViolation(IdempotencyViolationException ex) {
+        log.error("Нарушение идемпотентности: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(ex.getMessage(), HttpStatus.CONFLICT.value(), LocalDateTime.now()));
+    }
+    
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
@@ -63,5 +70,5 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("Внутренняя ошибка сервера", HttpStatus.INTERNAL_SERVER_ERROR.value(), LocalDateTime.now()));
     }
     
-    record ErrorResponse(String message, int status, LocalDateTime timestamp) {}
+    public record ErrorResponse(String message, int status, LocalDateTime timestamp) {}
 }
