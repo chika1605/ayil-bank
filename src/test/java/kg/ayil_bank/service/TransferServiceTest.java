@@ -7,8 +7,10 @@ import kg.ayil_bank.entity.Transaction;
 import kg.ayil_bank.enums.AccountStatus;
 import kg.ayil_bank.enums.TransactionStatus;
 import kg.ayil_bank.exception.*;
+import kg.ayil_bank.mapper.TransferMapper;
 import kg.ayil_bank.repository.AccountRepository;
 import kg.ayil_bank.repository.TransactionRepository;
+import kg.ayil_bank.service.impl.TransferServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,8 +38,11 @@ class TransferServiceTest {
     @Mock
     private TransactionService transactionService;
 
+    @Mock
+    private TransferMapper transferMapper;
+
     @InjectMocks
-    private TransferService transferService;
+    private TransferServiceImpl transferService;
 
     private Account fromAccount;
     private Account toAccount;
@@ -60,6 +65,10 @@ class TransferServiceTest {
             t.setId(1L);
             return t;
         });
+        when(transferMapper.toSuccessResponse(any(), any())).thenReturn(
+            new TransferResponse(1L, "ACC001", "ACC002", new BigDecimal("100.00"), 
+                TransactionStatus.SUCCESS, "Transfer completed successfully", null)
+        );
 
         TransferResponse response = transferService.transfer(request, "key123");
 
@@ -118,6 +127,10 @@ class TransferServiceTest {
         when(transactionRepository.findByIdempotencyKey("key123")).thenReturn(Optional.of(existingTransaction));
         when(accountRepository.findById(1L)).thenReturn(Optional.of(fromAccount));
         when(accountRepository.findById(2L)).thenReturn(Optional.of(toAccount));
+        when(transferMapper.toResponse(any(), any(), any())).thenReturn(
+            new TransferResponse(1L, "ACC001", "ACC002", new BigDecimal("100.00"), 
+                TransactionStatus.SUCCESS, "Transfer completed successfully", null)
+        );
 
         TransferResponse response = transferService.transfer(request, "key123");
 
