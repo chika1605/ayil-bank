@@ -2,15 +2,14 @@ package kg.ayil_bank.entity;
 
 import jakarta.persistence.*;
 import kg.ayil_bank.enums.AccountStatus;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 
 @Entity
 @Table(name = "accounts")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class Account {

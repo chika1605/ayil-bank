@@ -7,12 +7,16 @@ import kg.ayil_bank.entity.Transaction;
 import kg.ayil_bank.enums.AccountStatus;
 import kg.ayil_bank.enums.TransactionStatus;
 import kg.ayil_bank.exception.*;
+import kg.ayil_bank.mapper.TransferMapper;
 import kg.ayil_bank.repository.AccountRepository;
 import kg.ayil_bank.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -22,70 +26,33 @@ public class TransferService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final TransactionService transactionService;
+    private final TransferMapper transferMapper;
     
     @Transactional
     public TransferResponse transfer(TransferRequest request, String idempotencyKey) {
         log.info("Начало перевода с {} на {} сумма {}", 
                 request.getFromAccountNumber(), request.getToAccountNumber(), request.getAmount());
         
-        if (idempotencyKey != null) {
-            var existingTransaction = transactionRepository.findByIdempotencyKey(idempotencyKey);
-            if (existingTransaction.isPresent()) {
-                log.info("Обнаружен дублирующий запрос с ключом идемпотентности: {}", idempotencyKey);
-                return buildResponseFromTransaction(existingTransaction.get());
-            }
+        Optional<TransferResponse> cachedResponse = checkIdempotency(idempotencyKey);
+        if (cachedResponse.isPresent()) {
+            return cachedResponse.get();
         }
         
-        Transaction transaction = new Transaction();
-        transaction.setIdempotencyKey(idempotencyKey);
-        transaction.setAmount(request.getAmount());
+        Transaction transaction = createTransaction(request, idempotencyKey);
         
         try {
-            if (request.getFromAccountNumber().equals(request.getToAccountNumber())) {
-                throw new InvalidTransferException("Нельзя переводить средства самому себе");
-            }
+            validateSameAccount(request);
+            AccountPair accounts = lockAccounts(request);
+            validateAccounts(accounts.from(), accounts.to(), request.getAmount());
             
-            Account fromAccount = accountRepository.findByAccountNumberWithLock(request.getFromAccountNumber())
-                    .orElseThrow(() -> new AccountNotFoundException("Счет отправителя не найден: " + request.getFromAccountNumber()));
+            transaction.setFromAccountId(accounts.from().getId());
+            transaction.setToAccountId(accounts.to().getId());
             
-            Account toAccount = accountRepository.findByAccountNumberWithLock(request.getToAccountNumber())
-                    .orElseThrow(() -> new AccountNotFoundException("Счет получателя не найден: " + request.getToAccountNumber()));
-            
-            transaction.setFromAccountId(fromAccount.getId());
-            transaction.setToAccountId(toAccount.getId());
-            
-            if (fromAccount.getStatus() != AccountStatus.ACTIVE) {
-                throw new AccountNotActiveException("Счет отправителя не активен");
-            }
-            
-            if (toAccount.getStatus() != AccountStatus.ACTIVE) {
-                throw new AccountNotActiveException("Счет получателя не активен");
-            }
-            
-            if (fromAccount.getBalance().compareTo(request.getAmount()) < 0) {
-                throw new InsufficientBalanceException("Недостаточно средств на счете отправителя");
-            }
-            
-            fromAccount.setBalance(fromAccount.getBalance().subtract(request.getAmount()));
-            toAccount.setBalance(toAccount.getBalance().add(request.getAmount()));
-            
-            accountRepository.save(fromAccount);
-            accountRepository.save(toAccount);
-            
-            transaction.setStatus(TransactionStatus.SUCCESS);
-            transactionRepository.save(transaction);
+            executeTransfer(accounts.from(), accounts.to(), request.getAmount());
+            saveSuccessTransaction(transaction);
             
             log.info("Перевод успешно завершен. ID транзакции: {}", transaction.getId());
-            
-            return TransferResponse.builder()
-                    .transactionId(transaction.getId())
-                    .fromAccountNumber(request.getFromAccountNumber())
-                    .toAccountNumber(request.getToAccountNumber())
-                    .amount(request.getAmount())
-                    .status(TransactionStatus.SUCCESS)
-                    .message("Перевод выполнен успешно")
-                    .timestamp(transaction.getCreatedAt())
-                    .build();
+            return transferMapper.toSuccessResponse(request, transaction);
             
         } catch (Exception e) {
             log.error("Перевод не выполнен: {}", e.getMessage());
@@ -94,19 +61,69 @@ public class TransferService {
         }
     }
     
-    private TransferResponse buildResponseFromTransaction(Transaction transaction) {
-        Account fromAccount = accountRepository.findById(transaction.getFromAccountId()).orElse(null);
-        Account toAccount = accountRepository.findById(transaction.getToAccountId()).orElse(null);
+    private Optional<TransferResponse> checkIdempotency(String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return Optional.empty();
+        }
         
-        return TransferResponse.builder()
-                .transactionId(transaction.getId())
-                .fromAccountNumber(fromAccount != null ? fromAccount.getAccountNumber() : null)
-                .toAccountNumber(toAccount != null ? toAccount.getAccountNumber() : null)
-                .amount(transaction.getAmount())
-                .status(transaction.getStatus())
-                .message(transaction.getStatus() == TransactionStatus.SUCCESS ? 
-                        "Перевод выполнен успешно" : transaction.getErrorMessage())
-                .timestamp(transaction.getCreatedAt())
-                .build();
+        return transactionRepository.findByIdempotencyKey(idempotencyKey)
+                .map(transaction -> {
+                    log.info("Обнаружен дублирующий запрос с ключом идемпотентности: {}", idempotencyKey);
+                    Account fromAccount = accountRepository.findById(transaction.getFromAccountId()).orElse(null);
+                    Account toAccount = accountRepository.findById(transaction.getToAccountId()).orElse(null);
+                    return transferMapper.toResponse(transaction, fromAccount, toAccount);
+                });
     }
+    
+    private Transaction createTransaction(TransferRequest request, String idempotencyKey) {
+        Transaction transaction = new Transaction();
+        transaction.setIdempotencyKey(idempotencyKey);
+        transaction.setAmount(request.getAmount());
+        return transaction;
+    }
+    
+    private void validateSameAccount(TransferRequest request) {
+        if (request.getFromAccountNumber().equals(request.getToAccountNumber())) {
+            throw new InvalidTransferException("Нельзя переводить средства самому себе");
+        }
+    }
+    
+    private AccountPair lockAccounts(TransferRequest request) {
+        Account fromAccount = accountRepository.findByAccountNumberWithLock(request.getFromAccountNumber())
+                .orElseThrow(() -> new AccountNotFoundException("Счет отправителя не найден: " + request.getFromAccountNumber()));
+        
+        Account toAccount = accountRepository.findByAccountNumberWithLock(request.getToAccountNumber())
+                .orElseThrow(() -> new AccountNotFoundException("Счет получателя не найден: " + request.getToAccountNumber()));
+        
+        return new AccountPair(fromAccount, toAccount);
+    }
+    
+    private void validateAccounts(Account fromAccount, Account toAccount, BigDecimal amount) {
+        if (fromAccount.getStatus() != AccountStatus.ACTIVE) {
+            throw new AccountNotActiveException("Счет отправителя не активен");
+        }
+        
+        if (toAccount.getStatus() != AccountStatus.ACTIVE) {
+            throw new AccountNotActiveException("Счет получателя не активен");
+        }
+        
+        if (fromAccount.getBalance().compareTo(amount) < 0) {
+            throw new InsufficientBalanceException("Недостаточно средств на счете отправителя");
+        }
+    }
+    
+    private void executeTransfer(Account fromAccount, Account toAccount, BigDecimal amount) {
+        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
+        toAccount.setBalance(toAccount.getBalance().add(amount));
+        
+        accountRepository.save(fromAccount);
+        accountRepository.save(toAccount);
+    }
+    
+    private void saveSuccessTransaction(Transaction transaction) {
+        transaction.setStatus(TransactionStatus.SUCCESS);
+        transactionRepository.save(transaction);
+    }
+    
+    private record AccountPair(Account from, Account to) {}
 }

@@ -2,16 +2,15 @@ package kg.ayil_bank.entity;
 
 import jakarta.persistence.*;
 import kg.ayil_bank.enums.TransactionStatus;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "transactions")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class Transaction {
@@ -20,10 +19,10 @@ public class Transaction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     
-    @Column(nullable = true)
+    @Column
     private Long fromAccountId;
     
-    @Column(nullable = true)
+    @Column
     private Long toAccountId;
     
     @Column(nullable = false)
