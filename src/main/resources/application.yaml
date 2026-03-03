@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: ayil_bank
+  
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ayil_bank
+    username: postgres
+    password: qwerty
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+logging:
+  level:
+    kg.ayil_bank: INFO
+    org.springframework.transaction: DEBUG
