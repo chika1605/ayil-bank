@@ -1,10 +1,12 @@
 package kg.ayil_bank.exception;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -13,53 +15,47 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
+@RequiredArgsConstructor
 @Slf4j
 public class GlobalExceptionHandler {
     
+    private final ErrorResponseFactory errorFactory;
+    
+    @ExceptionHandler({
+        InsufficientBalanceException.class,
+        InvalidTransferException.class,
+        AccountNotActiveException.class
+    })
+    public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex) {
+        log.error("Ошибка запроса: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(errorFactory.build(HttpStatus.BAD_REQUEST, ex.getMessage()));
+    }
+    
     @ExceptionHandler(AccountNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleAccountNotFound(AccountNotFoundException ex) {
-        log.error("Счет не найден: {}", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleNotFound(AccountNotFoundException ex) {
+        log.error("Ресурс не найден: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(new ErrorResponse(ex.getMessage(), HttpStatus.NOT_FOUND.value(), LocalDateTime.now()));
-    }
-    
-    @ExceptionHandler(InsufficientBalanceException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientBalance(InsufficientBalanceException ex) {
-        log.error("Недостаточно средств: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(ex.getMessage(), HttpStatus.BAD_REQUEST.value(), LocalDateTime.now()));
-    }
-    
-    @ExceptionHandler(InvalidTransferException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidTransfer(InvalidTransferException ex) {
-        log.error("Некорректный перевод: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(ex.getMessage(), HttpStatus.BAD_REQUEST.value(), LocalDateTime.now()));
-    }
-    
-    @ExceptionHandler(AccountNotActiveException.class)
-    public ResponseEntity<ErrorResponse> handleAccountNotActive(AccountNotActiveException ex) {
-        log.error("Счет неактивен: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(ex.getMessage(), HttpStatus.BAD_REQUEST.value(), LocalDateTime.now()));
+                .body(errorFactory.build(HttpStatus.NOT_FOUND, ex.getMessage()));
     }
     
     @ExceptionHandler(IdempotencyViolationException.class)
-    public ResponseEntity<ErrorResponse> handleIdempotencyViolation(IdempotencyViolationException ex) {
-        log.error("Нарушение идемпотентности: {}", ex.getMessage());
+    public ResponseEntity<ErrorResponse> handleConflict(IdempotencyViolationException ex) {
+        log.error("Конфликт: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse(ex.getMessage(), HttpStatus.CONFLICT.value(), LocalDateTime.now()));
+                .body(errorFactory.build(HttpStatus.CONFLICT, ex.getMessage()));
     }
     
-    @ExceptionHandler(org.springframework.web.bind.MissingRequestHeaderException.class)
-    public ResponseEntity<ErrorResponse> handleMissingHeader(org.springframework.web.bind.MissingRequestHeaderException ex) {
-        log.error("Отсутствует обязательный заголовок: {}", ex.getHeaderName());
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException ex) {
+        String message = "Обязательный заголовок '" + ex.getHeaderName() + "' отсутствует";
+        log.error("Отсутствует заголовок: {}", ex.getHeaderName());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse("Обязательный заголовок '" + ex.getHeaderName() + "' отсутствует", HttpStatus.BAD_REQUEST.value(), LocalDateTime.now()));
+                .body(errorFactory.build(HttpStatus.BAD_REQUEST, message));
     }
     
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+    public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
@@ -71,10 +67,10 @@ public class GlobalExceptionHandler {
     }
     
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
-        log.error("Неожиданная ошибка: {}", ex.getMessage(), ex);
+    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
+        log.error("Неожиданная ошибка", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse("Внутренняя ошибка сервера", HttpStatus.INTERNAL_SERVER_ERROR.value(), LocalDateTime.now()));
+                .body(errorFactory.build(HttpStatus.INTERNAL_SERVER_ERROR, "Внутренняя ошибка сервера"));
     }
     
     public record ErrorResponse(String message, int status, LocalDateTime timestamp) {}
