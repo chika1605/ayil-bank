@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "transactions")
@@ -36,7 +37,7 @@ public class Transaction {
     private String errorMessage;
     
     @Column(unique = true)
-    private String idempotencyKey;
+    private UUID idempotencyKey;
     
     @Column(nullable = false)
     private LocalDateTime createdAt;

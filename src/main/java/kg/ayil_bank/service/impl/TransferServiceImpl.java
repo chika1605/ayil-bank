@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -40,12 +41,14 @@ public class TransferServiceImpl implements TransferService {
                 maskAccountNumber(request.getToAccountNumber()), 
                 request.getAmount());
         
-        Optional<TransferResponse> cachedResponse = checkIdempotency(idempotencyKey, request);
+        UUID uuid = idempotencyKey != null ? UUID.fromString(idempotencyKey) : null;
+        
+        Optional<TransferResponse> cachedResponse = checkIdempotency(uuid, request);
         if (cachedResponse.isPresent()) {
             return cachedResponse.get();
         }
         
-        Transaction transaction = createTransaction(request, idempotencyKey);
+        Transaction transaction = createTransaction(request, uuid);
         
         try {
             validateSameAccount(request);
@@ -75,7 +78,7 @@ public class TransferServiceImpl implements TransferService {
         }
     }
     
-    private Optional<TransferResponse> checkIdempotency(String idempotencyKey, TransferRequest request) {
+    private Optional<TransferResponse> checkIdempotency(UUID idempotencyKey, TransferRequest request) {
         if (idempotencyKey == null) {
             return Optional.empty();
         }
@@ -97,7 +100,7 @@ public class TransferServiceImpl implements TransferService {
                 });
     }
     
-    private Transaction createTransaction(TransferRequest request, String idempotencyKey) {
+    private Transaction createTransaction(TransferRequest request, UUID idempotencyKey) {
         Transaction transaction = new Transaction();
         transaction.setIdempotencyKey(idempotencyKey);
         transaction.setAmount(request.getAmount());

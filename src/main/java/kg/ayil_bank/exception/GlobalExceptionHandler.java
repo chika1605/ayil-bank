@@ -51,6 +51,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(ex.getMessage(), HttpStatus.CONFLICT.value(), LocalDateTime.now()));
     }
     
+    @ExceptionHandler(org.springframework.web.bind.MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(org.springframework.web.bind.MissingRequestHeaderException ex) {
+        log.error("Отсутствует обязательный заголовок: {}", ex.getHeaderName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("Обязательный заголовок '" + ex.getHeaderName() + "' отсутствует", HttpStatus.BAD_REQUEST.value(), LocalDateTime.now()));
+    }
+    
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();

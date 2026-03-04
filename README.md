@@ -25,7 +25,7 @@ REST-сервис для внутреннего перевода денежны�
 Выполняет перевод между счетами.
 
 **Headers:**
-- `Idempotency-Key` (optional) - ключ для идемпотентности
+- `Idempotency-Key` (required) - UUID ключ для идемпотентности
 
 **Request Body:**
 ```json
@@ -160,7 +160,7 @@ docker-compose down
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: unique-key-123" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440001" \
   -d '{
     "fromAccountNumber": "ACC001",
     "toAccountNumber": "ACC002",
@@ -173,7 +173,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: unique-key-123" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440001" \
   -d '{
     "fromAccountNumber": "ACC001",
     "toAccountNumber": "ACC002",
@@ -186,6 +186,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440002" \
   -d '{
     "fromAccountNumber": "ACC001",
     "toAccountNumber": "ACC002",
@@ -198,6 +199,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440003" \
   -d '{
     "fromAccountNumber": "ACC003",
     "toAccountNumber": "ACC002",
@@ -210,6 +212,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440004" \
   -d '{
     "fromAccountNumber": "ACC004",
     "toAccountNumber": "ACC002",
@@ -222,6 +225,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440005" \
   -d '{
     "fromAccountNumber": "ACC001",
     "toAccountNumber": "ACC001",
@@ -234,6 +238,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440006" \
   -d '{
     "fromAccountNumber": "ACC999",
     "toAccountNumber": "ACC002",
@@ -246,6 +251,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440007" \
   -d '{
     "fromAccountNumber": "",
     "toAccountNumber": "ACC002",
@@ -258,6 +264,7 @@ curl -X POST http://localhost:8080/api/transfers \
 ```bash
 curl -X POST http://localhost:8080/api/transfers \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440008" \
   -d '{
     "fromAccountNumber": "ACC001",
     "toAccountNumber": "ACC002",
@@ -265,6 +272,18 @@ curl -X POST http://localhost:8080/api/transfers \
   }'
 ```
 **Ожидается:** 400 Bad Request, "Сумма должна быть больше нуля"
+
+### 10. Отсутствие Idempotency-Key
+```bash
+curl -X POST http://localhost:8080/api/transfers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fromAccountNumber": "ACC001",
+    "toAccountNumber": "ACC002",
+    "amount": 100.00
+  }'
+```
+**Ожидается:** 400 Bad Request, "Required header 'Idempotency-Key' is not present"
 
 ## Unit-тесты
 Запуск тестов:
