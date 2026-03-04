@@ -85,8 +85,12 @@ public class TransferServiceImpl implements TransferService {
         
         return transactionRepository.findByIdempotencyKey(idempotencyKey)
                 .map(transaction -> {
-                    Account fromAccount = accountRepository.findById(transaction.getFromAccountId()).orElse(null);
-                    Account toAccount = accountRepository.findById(transaction.getToAccountId()).orElse(null);
+                    Account fromAccount = transaction.getFromAccountId() != null 
+                        ? accountRepository.findById(transaction.getFromAccountId()).orElse(null) 
+                        : null;
+                    Account toAccount = transaction.getToAccountId() != null 
+                        ? accountRepository.findById(transaction.getToAccountId()).orElse(null) 
+                        : null;
                     
                     if (!transaction.getAmount().equals(request.getAmount()) ||
                         (fromAccount != null && !fromAccount.getAccountNumber().equals(request.getFromAccountNumber())) ||
