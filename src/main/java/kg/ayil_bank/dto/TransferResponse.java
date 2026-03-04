@@ -31,7 +31,7 @@ public class TransferResponse {
         return maskAccountNumber(fromAccountNumber);
     }
 
-    @JsonProperty("fromAccountNumber")
+    @JsonProperty("toAccountNumber")
     public String getToAccountNumber() {
         return maskAccountNumber(toAccountNumber);
     }
